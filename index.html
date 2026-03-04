@@ -6,36 +6,43 @@
     <title>iTravel Pro</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; align-items: center; justify-content: space-between; overflow: hidden; }
-        header { margin-top: 40px; text-align: center; }
-        h1 { font-weight: 200; letter-spacing: 6px; text-transform: uppercase; font-size: 1.5rem; margin: 0; }
+        body { background: #000; color: #fff; font-family: -apple-system, sans-serif; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         
-        #container { position: relative; width: 100%; flex-grow: 1; display: flex; align-items: center; justify-content: center; }
-        #perform-btn { background: none; border: 1px solid #ffffff33; color: #fff; padding: 20px 60px; font-size: 1rem; letter-spacing: 4px; text-transform: uppercase; cursor: pointer; z-index: 10; }
-        #perform-btn:active { background: #fff; color: #000; }
+        header { padding: 30px 0; text-align: center; position: relative; }
+        h1 { font-weight: 200; letter-spacing: 6px; text-transform: uppercase; font-size: 1.2rem; margin: 0; }
+        
+        #main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; width: 100%; }
+        
+        #perform-btn { background: none; border: 1px solid #fff; color: #fff; padding: 20px 0; width: 220px; font-size: 1rem; letter-spacing: 4px; text-transform: uppercase; cursor: pointer; z-index: 10; }
+        
+        #cam-container { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        video { width: 100%; height: 100%; object-fit: cover; }
 
-        #cam-preview { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; object-fit: cover; }
-        
-        /* Viseur pour aider à la détection de loin */
-        #overlay { 
-            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 80%; height: 60px; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; pointer-events: none;
-        }
-        .scan-line { position: absolute; width: 100%; height: 2px; background: #fff; box-shadow: 0 0 15px #fff; animation: move 1.5s infinite ease-in-out; }
+        #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: 80px; border: 1px solid rgba(255,255,255,0.4); border-radius: 5px; pointer-events: none; }
+        .scan-line { position: absolute; width: 100%; height: 2px; background: #fff; box-shadow: 0 0 10px #fff; animation: move 2s infinite ease-in-out; }
         @keyframes move { 0%, 100% { top: 0; } 50% { top: 100%; } }
 
-        .log { position: absolute; bottom: 100px; font-size: 10px; color: #444; font-family: monospace; width: 100%; text-align: center; }
-        footer { margin-bottom: 25px; font-size: 0.6rem; color: #333; letter-spacing: 1px; }
+        #flash-btn { position: absolute; top: 20px; right: 20px; font-size: 1.5rem; background: none; border: none; color: #fff; display: none; z-index: 20; }
+        
+        .log { position: absolute; bottom: 80px; width: 100%; text-align: center; font-size: 10px; color: #555; letter-spacing: 1px; font-family: monospace; }
+        footer { padding: 20px 0; text-align: center; font-size: 0.6rem; color: #333; letter-spacing: 1px; }
     </style>
 </head>
 <body>
 
-    <header><h1>iTravel</h1></header>
+    <header>
+        <h1>iTravel</h1>
+        <button id="flash-btn">⚡</button>
+    </header>
 
-    <div id="container">
+    <div id="main">
         <button id="perform-btn">Perform</button>
-        <video id="video" autoplay playsinline></video>
-        <div id="overlay"><div class="scan-line"></div></div>
+        
+        <div id="cam-container">
+            <video id="video" autoplay playsinline></video>
+            <div id="overlay"><div class="scan-line"></div></div>
+        </div>
+
         <div class="log" id="logger">IDLE</div>
     </div>
 
@@ -43,91 +50,80 @@
 
     <script>
         const btn = document.getElementById('perform-btn');
+        const camContainer = document.getElementById('cam-container');
         const video = document.getElementById('video');
-        const overlay = document.getElementById('overlay');
+        const flashBtn = document.getElementById('flash-btn');
         const logger = document.getElementById('logger');
+        let track = null;
 
         const t9Map = {'a':'2','b':'2','c':'2','d':'3','e':'3','f':'3','g':'4','h':'4','i':'4','j':'5','k':'5','l':'5','m':'6','n':'6','o':'6','p':'7','q':'7','r':'7','s':'7','t':'8','u':'8','v':'8','w':'9','x':'9','y':'9','z':'9'};
         const toT9 = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split('').map(c => t9Map[c] || '').join('');
 
-        // Simulation d'une base de données massive (>1000 entrées)
-        const categories = {
-            pays: ["France", "Belgique", "Suisse", "Espagne", "Italie", "Portugal", "Allemagne", "Grece", "Maroc", "Tunisie", "Canada", "USA", "Japon", "Bresil", "Australie", "Norvege", "Croatie", "Turquie", "Egypte", "Mexique"],
-            villes: ["Paris", "Marseille", "Lyon", "Toulouse", "Nice", "Nantes", "Montpellier", "Strasbourg", "Bordeaux", "Lille", "Rennes", "Reims", "Toulon", "Saint-Etienne", "Le Havre", "Grenoble", "Dijon", "Angers", "Villeurbanne", "Le Mans", "Aix-en-Provence", "Brest", "Limoges", "Amiens", "Perpignan", "Metz", "Besancon", "Orleans", "Rouen", "Caen", "Nancy", "Avignon", "Poitiers", "Versailles", "Cannes", "Antibes", "Biarritz", "Londres", "New York", "Tokyo", "Dubai", "Bangkok", "Singapour", "Istanbul", "Seoul", "Miami", "Los Angeles", "Rome", "Milan", "Barcelone", "Madrid", "Berlin", "Munich", "Prague", "Vienne", "Amsterdam", "Lisbonne", "Venise", "Florence"],
-            regions: ["Bretagne", "Normandie", "Corse", "Provence", "Alsace", "Savoie", "Occitanie", "Toscane", "Andalousie", "Catalogne", "Baviere", "Floride", "Californie", "Texas", "Quebec", "Bali", "Phuket", "Zanzibar"]
-        };
-
+        const rawDests = ["Paris","Marseille","Lyon","Toulouse","Nice","Nantes","Montpellier","Strasbourg","Bordeaux","Lille","Londres","NewYork","Miami","Tokyo","Barcelone","Madrid","Rome","Milan","Berlin","France","Espagne","Italie","Portugal","Grece","Canada"];
         const T9_DB = {};
-        [...categories.pays, ...categories.villes, ...categories.regions].forEach(d => {
-            let code = toT9(d.replace(/[-\s]/g, ""));
-            if(code.length >= 4) T9_DB[code] = d;
-        });
+        rawDests.forEach(d => { T9_DB[toT9(d)] = d; });
 
         btn.addEventListener('click', async () => {
             btn.style.display = 'none';
-            overlay.style.display = 'block';
-            video.style.display = 'block';
-
+            camContainer.style.display = 'block';
+            flashBtn.style.display = 'block';
+            
             try {
-                // Forcer la HD et le focus environnemental
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: "environment",
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
-                    } 
+                    video: { facingMode: "environment", width: 1280, height: 720 } 
                 });
                 video.srcObject = stream;
-                initOCR();
-            } catch (err) {
-                alert("Erreur Caméra. Vérifiez le HTTPS.");
+                track = stream.getVideoTracks()[0];
+                startOCR();
+            } catch (e) { alert("Erreur: Vérifiez HTTPS et les permissions."); }
+        });
+
+        flashBtn.addEventListener('click', () => {
+            if(track) {
+                const caps = track.getCapabilities();
+                if(caps.torch) {
+                    const settings = track.getSettings();
+                    track.applyConstraints({ advanced: [{ torch: !settings.torch }] });
+                }
             }
         });
 
-        async function initOCR() {
-            logger.innerText = "LOADING ENGINE...";
+        async function startOCR() {
+            logger.innerText = "ENGINE LOADING...";
             const worker = await Tesseract.createWorker('eng');
-            // On restreint à 100% aux chiffres pour booster la vitesse
             await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
-            logger.innerText = "SCANNING ACTIVE";
+            logger.innerText = "ACTIVE SCAN (10Hz)";
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
 
-            // Boucle haute fréquence
-            async function scanLoop() {
+            async function loop() {
                 if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                    // On ne capture que la zone centrale (viseur) pour aller plus vite
-                    const scale = video.videoWidth / video.clientWidth;
-                    const scanHeight = 100 * scale;
-                    const scanWidth = video.videoWidth;
-                    
-                    canvas.width = scanWidth;
-                    canvas.height = scanHeight;
-                    
-                    ctx.drawImage(video, 0, (video.videoHeight/2) - (scanHeight/2), scanWidth, scanHeight, 0, 0, scanWidth, scanHeight);
+                    // Crop central pour rapidité
+                    const sw = video.videoWidth;
+                    const sh = 100; // Hauteur du bandeau de scan
+                    canvas.width = sw;
+                    canvas.height = sh;
+                    ctx.drawImage(video, 0, (video.videoHeight/2)-(sh/2), sw, sh, 0, 0, sw, sh);
 
                     const { data: { text } } = await worker.recognize(canvas);
-                    const digits = text.replace(/\D/g, '');
+                    const found = text.replace(/\D/g, '');
                     
-                    if (digits.length >= 4) {
-                        logger.innerText = "CHECKING: " + digits;
+                    if(found.length >= 4) {
                         for (let code in T9_DB) {
-                            if (digits.includes(code)) {
-                                logger.innerText = "FOUND: " + T9_DB[code];
-                                logger.style.color = "#00ff00";
+                            if (found.includes(code)) {
+                                logger.innerText = "MATCH: " + T9_DB[code];
                                 setTimeout(() => {
                                     window.location.href = `https://www.google.com/search?q=Meilleurs+hôtels+${encodeURIComponent(T9_DB[code])}`;
-                                }, 400);
+                                }, 300);
                                 return;
                             }
                         }
                     }
                 }
-                // Relance immédiatement après la fin du traitement précédent
-                requestAnimationFrame(scanLoop);
+                requestAnimationFrame(loop);
             }
-            scanLoop();
+            loop();
         }
     </script>
 </body>
