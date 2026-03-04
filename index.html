@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>iTravel - Perform</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica; margin: 0; display: flex; flex-direction: column; height: 100vh; justify-content: space-between; align-items: center; overflow: hidden; }
+        h1 { font-weight: 200; letter-spacing: 4px; margin-top: 50px; text-transform: uppercase; }
+        #main { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; align-items: center; }
+        #perform-btn { background: none; border: 1px solid #444; color: #fff; padding: 25px 80px; font-size: 1.1rem; letter-spacing: 2px; cursor: pointer; text-transform: uppercase; border-radius: 2px; transition: 0.3s; }
+        #perform-btn:active { background: #fff; color: #000; }
+        #cam-container { display: none; width: 90%; max-width: 400px; position: relative; }
+        video { width: 100%; border-radius: 15px; border: 1px solid #222; }
+        .scanner-line { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: rgba(255,255,255,0.5); box-shadow: 0 0 10px #fff; animation: scan 2s infinite linear; pointer-events: none; }
+        @keyframes scan { 0% { top: 10%; } 100% { top: 90%; } }
+        .status { margin-top: 15px; font-size: 0.7rem; color: #666; text-align: center; font-family: monospace; }
+        footer { margin-bottom: 30px; font-size: 0.65rem; color: #333; letter-spacing: 1.5px; }
+    </style>
+</head>
+<body>
+
+    <h1>iTravel</h1>
+
+    <div id="main">
+        <button id="perform-btn">Perform</button>
+        
+        <div id="cam-container">
+            <video id="video" autoplay playsinline></video>
+            <div class="scanner-line"></div>
+            <p class="status" id="status">INITIALISATION...</p>
+        </div>
+    </div>
+
+    <footer>ITRAVEL - ALOÏS 2026 - ALL RIGHTS RESERVED</footer>
+
+    <script>
+        const btn = document.getElementById('perform-btn');
+        const container = document.getElementById('cam-container');
+        const video = document.getElementById('video');
+        const status = document.getElementById('status');
+
+        // Mappage T9 standard
+        const t9Map = {
+            'a': '2', 'b': '2', 'c': '2', 'd': '3', 'e': '3', 'f': '3',
+            'g': '4', 'h': '4', 'i': '4', 'j': '5', 'k': '5', 'l': '5',
+            'm': '6', 'n': '6', 'o': '6', 'p': '7', 'q': '7', 'r': '7', 's': '7',
+            't': '8', 'u': '8', 'v': '8', 'w': '9', 'x': '9', 'y': '9', 'z': '9'
+        };
+
+        const toT9 = (text) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split('').map(char => t9Map[char] || '').join('');
+
+        // Base de données : Ajoute autant de noms que tu veux ici
+        const rawDestinations = [
+            "Paris", "Marseille", "Lyon", "Toulouse", "Nice", "Nantes", "Montpellier", "Strasbourg", "Bordeaux", "Lille", "Rennes", "Reims", "Le Havre", "Saint Etienne", "Toulon", "Grenoble", "Dijon", "Angers", "Villeurbanne", "Le Mans", "Aix en Provence", "Brest", "Limoges", "Amiens", "Perpignan", "Metz", "Besancon", "Orleans", "Rouen", "Caen", "Nancy", "Avignon", "Poitiers", "Versailles", "Cannes", "Antibes", "Biarritz", "Ajaccio", "Calvi",
+            "France", "Belgique", "Suisse", "Espagne", "Italie", "Portugal", "Allemagne", "Grece", "Turquie", "Maroc", "Tunisie", "Egypte", "Londres", "Berlin", "Madrid", "Rome", "Lisbonne", "Athenes", "Bruxelles", "Amsterdam", "Prague", "Vienne", "Varsovie", "Budapest", "Dublin", "Oslo", "Stockholm", "Copenhague", "Helsinki",
+            "New York", "Miami", "Los Angeles", "Chicago", "San Francisco", "Las Vegas", "Washington", "Tokyo", "Kyoto", "Osaka", "Seoul", "Pekin", "Shanghai", "Bangkok", "Singapour", "Dubai", "Sydney", "Melbourne", "Montreal", "Quebec", "Toronto", "Vancouver", "Mexico", "Rio de Janeiro", "Sao Paulo", "Buenos Aires", "Le Caire", "Johannesburg", "Moscou", "Istanbul", "Bali", "Phuket", "Venise", "Florence", "Naples", "Milan", "Barcelone", "Seville", "Grenade", "Munich", "Cracovie", "Zanzibar"
+            // (La liste peut être étendue à l'infini en suivant ce format)
+        ];
+
+        // On génère la table de correspondance inverse
+        const T9_DB = {};
+        rawDestinations.forEach(d => {
+            const code = toT9(d);
+            if(code.length > 2) T9_DB[code] = d;
+        });
+
+        btn.addEventListener('click', async () => {
+            // Vérification HTTPS
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                alert("ERREUR : L'accès caméra nécessite une connexion sécurisée (HTTPS).");
+                return;
+            }
+
+            btn.style.display = 'none';
+            container.style.display = 'block';
+            status.innerText = "ACCÈS CAMÉRA...";
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment", focusMode: "continuous" } 
+                });
+                video.srcObject = stream;
+                startScanning();
+            } catch (err) {
+                status.innerText = "ERREUR: " + err.message;
+            }
+        });
+
+        async function startScanning() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            status.innerText = "ANALYSE EN COURS...";
+
+            const loop = async () => {
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    const { data: { text } } = await Tesseract.recognize(canvas, 'eng', {
+                        tessedit_char_whitelist: '0123456789'
+                    });
+                    
+                    const foundDigits = text.replace(/\D/g, '');
+                    console.log("Lecture :", foundDigits);
+
+                    for (let code in T9_DB) {
+                        if (foundDigits.includes(code)) {
+                            const dest = T9_DB[code];
+                            status.innerText = "DESTINATION : " + dest.toUpperCase();
+                            status.style.color = "#00ff00";
+                            
+                            setTimeout(() => {
+                                window.location.href = `https://www.google.com/search?q=Meilleurs+hôtels+${encodeURIComponent(dest)}`;
+                            }, 800);
+                            return; // Stop loop
+                        }
+                    }
+                }
+                setTimeout(loop, 1500); // Analyse toutes les 1.5s
+            };
+            loop();
+        }
+    </script>
+</body>
+</html>
